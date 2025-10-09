@@ -6,17 +6,45 @@ import os
 from pathlib import Path
 from typing import List, Optional
 import json
+import tempfile
 
 router = APIRouter()
 
 # --- GEE Setup ---
 def gee_initialize():
-    """Initialize Google Earth Engine with the specified project."""
+    """Initialize Google Earth Engine with service account authentication."""
     try:
-        ee.Initialize(project='dataground-demo')
-    except Exception:
-        ee.Authenticate()
-        ee.Initialize(project='dataground-demo')
+        service_account_file = os.getenv('GOOGLE_CREDENTIALS')  #"dataground-demo-8e3edabd762a.json"
+        if not service_account_file:
+            raise ValueError("GOOGLE_CREDENTIALS env variable not found.")
+        
+        with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as f:
+            json.dump(json.loads(service_account_file), f)
+            temp_path = f.name
+        
+        if os.path.exists(temp_path):
+            credentials = ee.ServiceAccountCredentials(
+                email='dataground2025@gmail.com',
+                key_file=temp_path,
+            )
+            ee.Initialize(credentials, project='dataground-469809')
+            print("GEE initialized with service account authentication")
+        else:
+            print(f"Service account file '{service_account_file}' not found. Attempting interactive authentication...")
+            ee.Authenticate()
+            ee.Initialize(project='dataground-demo')
+            print("GEE initialized with interactive authentication")
+            
+    except Exception as e:
+        print(f"Error initializing GEE: {str(e)}")
+        try:
+            ee.Authenticate()
+            ee.Initialize(project='dataground-469809')
+            print("GEE initialized with interactive authentication (fallback)")
+        except Exception as e2:
+            print(f"Failed to initialize GEE: {str(e2)}")
+            raise
+
 gee_initialize()
 
 # Use Jakarta bounding box polygon
