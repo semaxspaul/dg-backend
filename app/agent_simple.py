@@ -14,7 +14,7 @@ class SimpleDataGroundAgent:
             raise ValueError("OPENAI_API_KEY environment variable is not set. Please check your .env file.")
         
         self.client = openai.OpenAI(api_key=api_key)
-        self.base_url = "http://localhost:8000/gee"
+        self.base_url = "http://localhost:8000/analysis"
     
     def _call_gee_api(self, analysis_type: str, **kwargs) -> str:
         """Execute GEE analysis based on user request"""
@@ -50,14 +50,6 @@ This analysis shows how many people would be affected if sea levels rise by {thr
                     else:
                         return f"❌ Failed to generate sea level rise risk map: {response.text}"
                     
-            elif analysis_type == "urban-area":
-                year = kwargs.get('year', 2020)
-                response = requests.get(f"{self.base_url}/urban-area-map?year={year}")
-                if response.status_code == 200:
-                    return f"✅ Urban area analysis completed for year {year}. Map URL generated."
-                else:
-                    return f"❌ Failed to generate urban area map: {response.text}"
-                    
             elif analysis_type == "urban-area-comprehensive":
                 start_year = kwargs.get('start_year', 2014)
                 end_year = kwargs.get('end_year', 2020)
@@ -75,17 +67,8 @@ This analysis shows how many people would be affected if sea levels rise by {thr
                 else:
                     return f"❌ Failed to generate comprehensive urban area analysis: {response.text}"
                     
-            elif analysis_type == "population-exposure":
-                year = kwargs.get('year', 2020)
-                threshold = kwargs.get('threshold', 2.0)
-                response = requests.get(f"{self.base_url}/population-exposure-map?year={year}&threshold={threshold}")
-                if response.status_code == 200:
-                    return f"✅ Population exposure analysis completed for year {year} with threshold {threshold}m. Map URL generated."
-                else:
-                    return f"❌ Failed to generate population exposure map: {response.text}"
-            
             else:
-                return f"❌ Unknown analysis type: {analysis_type}. Available types: slr-risk, urban-area, urban-area-comprehensive, population-exposure"
+                return f"❌ Unknown analysis type: {analysis_type}. Available types: slr-risk, urban-area-comprehensive, infrastructure-exposure, topic-modeling"
                 
         except Exception as e:
             return f"❌ Error performing geospatial analysis: {str(e)}"
