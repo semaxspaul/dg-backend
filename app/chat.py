@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Body
 from sqlalchemy.orm import Session
 from . import schemas, models, database, utils
-from .agent_simple import SimpleDataGroundAgent
+from .adk_chat import send_message, generate_ai_response, get_chat_history
 import openai
 import os
 from typing import List, Optional, Dict
@@ -14,17 +14,7 @@ load_dotenv()
 
 router = APIRouter()
 
-# Initialize the DataGround agent lazily
-_agent = None
-
-def get_agent():
-    global _agent
-    if _agent is None:
-        _agent = SimpleDataGroundAgent()
-    return _agent
-
 # Dependency to get DB session
-
 def get_db():
     db = database.SessionLocal()
     try:
@@ -32,6 +22,7 @@ def get_db():
     finally:
         db.close()
 
+# Dependency to get current user from JWT token
 def get_current_user(Authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
     if not Authorization or not Authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -65,7 +56,7 @@ def get_messages(chat_id: int, current_user: models.User = Depends(get_current_u
     return chat.messages
 
 @router.post('/chats/{chat_id}/messages', response_model=schemas.MessageOut)
-def send_message(chat_id: int, content: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def send_message_endpoint(chat_id: int, content: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     chat = db.query(models.Chat).filter(models.Chat.id == chat_id, models.Chat.user_id == current_user.id).first()
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
@@ -76,19 +67,62 @@ def send_message(chat_id: int, content: str, current_user: models.User = Depends
     db.commit()
     db.refresh(user_msg)
     
-    # Use DataGround agent for AI response
+    # Use ADK chat integration for AI response
+    print(f"🚀 [ADK] Chat API received message from user {current_user.id}: '{content[:50]}...'")
     try:
-        agent = get_agent()
-        ai_content = agent.process_message(content)
+        # Process message with ADK agent
+        response = await send_message(
+            message=content,
+            user_id=current_user.id,
+            db=db
+        )
+        
+        print(f"✅ [ADK] Agent response: '{response.get('message', 'No response')[:50]}...'")
+        
+        # Store AI response
+        ai_msg = models.Message(
+            chat_id=chat_id, 
+            sender="assistant", 
+            content=response.get("message", "죄송합니다. 응답을 생성할 수 없습니다.")
+        )
+        db.add(ai_msg)
+        db.commit()
+        db.refresh(ai_msg)
+        
+        # Add dashboard_updates to the response
+        ai_msg_dict = {
+            "id": ai_msg.id,
+            "sender": ai_msg.sender,
+            "content": ai_msg.content,
+            "created_at": ai_msg.created_at.isoformat()
+        }
+        
+        # Include dashboard_updates if present
+        if "dashboard_updates" in response:
+            ai_msg_dict["dashboard_updates"] = response["dashboard_updates"]
+            print(f"🔍 [Chat API] Including dashboard_updates in response: {len(response['dashboard_updates'])} items")
+        
+        print(f"🔍 [Chat API] Final response structure: {list(ai_msg_dict.keys())}")
+        print(f"🔍 [Chat API] Final response dashboard_updates: {ai_msg_dict.get('dashboard_updates', 'NOT_FOUND')}")
+        
+        return ai_msg_dict
+        
     except Exception as e:
-        ai_content = f"[AI Error: {str(e)}]"
-    
-    # Store AI message
-    ai_msg = models.Message(chat_id=chat_id, sender="ai", content=ai_content)
-    db.add(ai_msg)
-    db.commit()
-    db.refresh(ai_msg)
-    return ai_msg
+        print(f"❌ [ADK] Error processing message: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Store error message
+        error_msg = models.Message(
+            chat_id=chat_id,
+            sender="assistant", 
+            content=f"죄송합니다. 오류가 발생했습니다: {str(e)}"
+        )
+        db.add(error_msg)
+        db.commit()
+        db.refresh(error_msg)
+        
+        return error_msg
 
 @router.patch('/chats/{chat_id}/title', response_model=schemas.ChatOut)
 def update_chat_title(chat_id: int, title: str = Body(...), current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -101,7 +135,7 @@ def update_chat_title(chat_id: int, title: str = Body(...), current_user: models
     return chat
 
 @router.post('/chats/first', response_model=dict)
-def create_chat_with_first_message(
+async def create_chat_with_first_message(
     title: str = Body(...),
     content: str = Body(...),
     current_user: models.User = Depends(get_current_user),
@@ -121,7 +155,7 @@ def create_chat_with_first_message(
     }
 
 @router.post('/chats/{chat_id}/ai_response', response_model=schemas.MessageOut)
-def generate_ai_response(chat_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def generate_ai_response_endpoint(chat_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     chat = db.query(models.Chat).filter(models.Chat.id == chat_id, models.Chat.user_id == current_user.id).first()
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
@@ -136,16 +170,33 @@ def generate_ai_response(chat_id: int, current_user: models.User = Depends(get_c
     if not last_user_message:
         ai_content = "I don't see any user messages to respond to."
     else:
-        # Use DataGround agent for AI response
+        # Use ADK chat integration for AI response
+        print(f"🚀 [ADK] Chat API generating AI response for user {current_user.id}...")
         try:
-            agent = get_agent()
-            ai_content = agent.process_message(last_user_message.content)
+            response = await generate_ai_response(
+                user_id=current_user.id,
+                db=db
+            )
+            ai_content = response.get("message", "죄송합니다. 응답을 생성할 수 없습니다.")
+            print(f"✅ [ADK] AI response generated: {ai_content[:100]}...")
+            
         except Exception as e:
-            ai_content = f"[AI Error: {str(e)}]"
+            print(f"❌ [ADK] Error generating AI response: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            ai_content = f"죄송합니다. 오류가 발생했습니다: {str(e)}"
     
     # Store AI message
-    ai_msg = models.Message(chat_id=chat_id, sender="ai", content=ai_content)
+    ai_msg = models.Message(chat_id=chat_id, sender="assistant", content=ai_content)
     db.add(ai_msg)
     db.commit()
     db.refresh(ai_msg)
     return ai_msg
+
+@router.get('/chats/{chat_id}/history', response_model=List[Dict])
+def get_chat_history_endpoint(chat_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    chat = db.query(models.Chat).filter(models.Chat.id == chat_id, models.Chat.user_id == current_user.id).first()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    return get_chat_history(current_user.id, db)

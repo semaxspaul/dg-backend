@@ -9,7 +9,7 @@ router = APIRouter()
 def gee_initialize():
     """Initialize Google Earth Engine with service account authentication."""
     try:
-        service_account_file = os.getenv('GOOGLE_CREDENTIALS')  #"dataground-469809-bbf1ad56f311.json"
+        service_account_file = os.getenv('GOOGLE_CREDENTIALS')  #"dataground-demo-8e3edabd762a.json"
         if not service_account_file:
             raise ValueError("GOOGLE_CREDENTIALS env variable not found.")
         
@@ -19,7 +19,7 @@ def gee_initialize():
         
         if os.path.exists(temp_path):
             credentials = ee.ServiceAccountCredentials(
-                email='gigloombusiness@gmail.com',
+                email='dataground2025@gmail.com',
                 key_file=temp_path,
             )
             ee.Initialize(credentials, project='dataground-469809')
@@ -27,7 +27,7 @@ def gee_initialize():
         else:
             print(f"Service account file '{service_account_file}' not found. Attempting interactive authentication...")
             ee.Authenticate()
-            ee.Initialize(project='dataground-469809')
+            ee.Initialize(project='dataground-demo')
             print("GEE initialized with interactive authentication")
             
     except Exception as e:

@@ -24,6 +24,7 @@ class MessageOut(BaseModel):
     sender: str
     content: str
     created_at: datetime
+    dashboard_updates: Optional[List[dict]] = None
     class Config:
         from_attributes = True
 

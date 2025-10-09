@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
 from .models import Base
 import os
 
@@ -12,3 +12,11 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Create tables
 Base.metadata.create_all(bind=engine)
+
+def get_db():
+    """데이터베이스 세션 의존성"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
