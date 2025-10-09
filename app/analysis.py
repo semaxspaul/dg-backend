@@ -27,7 +27,7 @@ def gee_initialize():
                 email='dataground2025@gmail.com',
                 key_file=temp_path,
             )
-            ee.Initialize(credentials, project='dataground-469809')
+            ee.Initialize(credentials, project='dataground-demo')
             print("GEE initialized with service account authentication")
         else:
             print(f"Service account file '{service_account_file}' not found. Attempting interactive authentication...")
@@ -39,7 +39,7 @@ def gee_initialize():
         print(f"Error initializing GEE: {str(e)}")
         try:
             ee.Authenticate()
-            ee.Initialize(project='dataground-469809')
+            ee.Initialize(project='dataground-demo')
             print("GEE initialized with interactive authentication (fallback)")
         except Exception as e2:
             print(f"Failed to initialize GEE: {str(e2)}")
