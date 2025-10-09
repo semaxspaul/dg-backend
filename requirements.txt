@@ -1,18 +1,36 @@
-annotated-types
-anyio
-bcrypt==4.3.0
-cachetools
-certifi
-cffi
-charset-normalizer
-colorama
-cryptography
-distro
-dnspython
-earthengine-api
-ecdsa
-email_validator
+# Web Framework & API
 fastapi
+uvicorn
+SQLAlchemy
+pydantic
+pydantic[email]
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+python-dotenv
+httpx
+requests
+starlette
+
+# OpenAI & Language Models
+openai
+
+# Data & Scientific
+pandas
+numpy
+matplotlib
+scikit-learn
+bertopic
+wordcloud
+tqdm
+
+# Document Processing
+python-docx
+PyPDF2
+pdfplumber
+
+# Google Cloud & Earth Engine
+earthengine-api
 google-api-core
 google-api-python-client
 google-auth
@@ -22,52 +40,46 @@ google-cloud-storage
 google-crc32c
 google-resumable-media
 googleapis-common-protos
-greenlet
-h11
-httpcore
-httplib2
-httpx
-idna
-jiter
-openai
-passlib[bcrypt]
-proto-plus
-protobuf
-pyasn1
-pyasn1_modules
-pycparser
-pydantic
-pydantic_core
-pydantic[email]
-pyparsing
-python-dotenv
-python-jose[cryptography]
-python-multipart
-requests
-rsa
-six
-sniffio
-SQLAlchemy
-starlette
-tqdm
-typing-inspection
-typing_extensions
 uritemplate
-urllib3
-uvicorn
+httplib2
 
-# Additional declared packages
-pandas
-numpy
-matplotlib
-scikit-learn
-bertopic
-python-docx
-PyPDF2
-pdfplumber
-wordcloud
-
-# Google ADK and LLM interface
+# Google ADK & LLM Interfaces
 google-adk
 litellm
 
+# Networking & Protocols
+anyio
+httpcore
+h11
+idna
+sniffio
+dnspython
+rsa
+ecdsa
+pyasn1
+pyasn1_modules
+
+# Security
+bcrypt==4.3.0
+cryptography
+cffi
+pycparser
+
+# Utilities & Compatibility
+annotated-types
+cachetools
+certifi
+charset-normalizer
+colorama
+distro
+greenlet
+proto-plus
+protobuf
+typing-inspection
+typing_extensions
+six
+pyparsing
+jiter
+
+# Pydantic Core
+pydantic_core

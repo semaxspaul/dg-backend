@@ -28,8 +28,8 @@ from ..shared.utils.bbox_utils import calculate_bbox, get_standard_buffer
 date_today = date.today()
 
 def setup_before_agent_call(callback_context: CallbackContext):
-    """에이전트 호출 전 설정"""
-    # 사용자별 상태 초기화
+    """Setup before agent call"""
+    # Initialize user-specific state
     if "user_states" not in callback_context.state:
         callback_context.state["user_states"] = defaultdict(lambda: {
             "status": "idle",  # idle, collecting_parameters, awaiting_confirmation, analysis_in_progress
@@ -38,13 +38,13 @@ def setup_before_agent_call(callback_context: CallbackContext):
             "conversation_context": []
         })
     
-    # 현재 사용자 ID 설정 (실제로는 요청에서 가져와야 함)
+    # Set current user ID (should be retrieved from request in practice)
     if "current_user_id" not in callback_context.state:
-        callback_context.state["current_user_id"] = 1  # 기본값
+        callback_context.state["current_user_id"] = 1  # Default value
 
 async def process_user_message(message: str, user_id: int, callback_context: CallbackContext) -> Dict[str, Any]:
-    """사용자 메시지를 처리하는 메인 로직"""
-    # ADK 에이전트 호출 전 설정
+    """Main logic for processing user messages"""
+    # Setup before ADK agent call
     setup_before_agent_call(callback_context)
     
     user_states = callback_context.state["user_states"]
@@ -52,7 +52,16 @@ async def process_user_message(message: str, user_id: int, callback_context: Cal
     
     print(f"🚀 [Main Agent] Processing message from user {user_id}: '{message[:50]}...'")
     
-    # 대화 컨텍스트에 사용자 메시지 추가
+    # Check if new chat and initialize state
+    is_new_chat = callback_context.state.get("is_new_chat", False)
+    if is_new_chat:
+        print(f"🔄 [Main Agent] New chat detected, resetting user state")
+        user_state["status"] = "idle"
+        user_state["analysis_type"] = None
+        user_state["collected_params"] = {}
+        user_state["conversation_context"] = []
+    
+    # Add user message to conversation context
     if "conversation_context" not in user_state:
         user_state["conversation_context"] = []
     
@@ -62,7 +71,7 @@ async def process_user_message(message: str, user_id: int, callback_context: Cal
         "timestamp": "now"
     })
     
-    # 상태별 처리
+    # Process by status
     if user_state["status"] == "collecting_parameters":
         return await handle_parameter_collection(message, user_id, user_state, callback_context)
     elif user_state["status"] == "awaiting_confirmation":
@@ -71,10 +80,10 @@ async def process_user_message(message: str, user_id: int, callback_context: Cal
         return await handle_new_request(message, user_id, user_state, callback_context)
 
 async def handle_new_request(message: str, user_id: int, user_state: Dict[str, Any], callback_context: CallbackContext) -> Dict[str, Any]:
-    """새로운 요청 처리"""
+    """Handle new request"""
     print(f"🔍 [Main Agent] Analyzing new request...")
     
-    # 분석 의도 감지
+    # Detect analysis intent
     try:
         intent_result = await detect_analysis_intent(message, callback_context)
         print(f"🔍 [Main Agent] Intent detection result: {intent_result}")
@@ -94,18 +103,18 @@ async def handle_new_request(message: str, user_id: int, user_state: Dict[str, A
         traceback.print_exc()
         analysis_type = None
     
-    # analysis_type이 있을 때만 매개변수 수집 진행
+    # Only proceed with parameter collection if analysis_type exists
     if analysis_type:
         print(f"🔧 [Main Agent] Setting up parameter collection for {analysis_type}...")
         
-        # 매개변수 수집 시작
+        # Start parameter collection
         user_state["status"] = "collecting_parameters"
         user_state["analysis_type"] = analysis_type
         user_state["collected_params"] = {}
         
         print(f"🔧 [Main Agent] User state updated: {user_state}")
         
-        # 매개변수 수집
+        # Collect parameters
         try:
             print(f"🔧 [Main Agent] Starting parameter collection...")
             param_result = await parameter_collector.collect_parameters(
@@ -117,7 +126,7 @@ async def handle_new_request(message: str, user_id: int, user_state: Dict[str, A
             import traceback
             traceback.print_exc()
             return {
-                "message": "매개변수 수집 중 오류가 발생했습니다. 다시 시도해주세요.",
+                "message": "An error occurred during parameter collection. Please try again.",
                 "status": "error"
             }
         
@@ -126,20 +135,20 @@ async def handle_new_request(message: str, user_id: int, user_state: Dict[str, A
             missing_params = param_result["validation"]["missing"]
             print(f"🔧 [Main Agent] Missing params: {missing_params}")
             
-            # Country를 먼저, 그 다음 City를 질문하는 순서로 변경
+            # Change order to ask Country first, then City
             if "country_name" in missing_params:
-                question = "어떤 국가를 분석하시겠습니까? (예: South Korea, United States)"
+                question = "Which country would you like to analyze? (e.g., South Korea, United States)"
             elif "city_name" in missing_params:
-                question = "어떤 도시를 분석하시겠습니까? (예: Seoul, Busan, New York)"
+                question = "Which city would you like to analyze? (e.g., Seoul, Busan, New York)"
             else:
-                # 첫 번째 누락된 매개변수만 질문
+                # Ask only the first missing parameter
                 first_missing = missing_params[0]
                 question = parameter_collector.generate_questions([first_missing], analysis_type)
             
-            response_message = f"네, {analysis_type.replace('_', ' ')} 분석을 도와드리겠습니다! {question}"
+            response_message = f"Yes, I'll help you with {analysis_type.replace('_', ' ')} analysis! {question}"
             print(f"🔧 [Main Agent] Generated response: {response_message}")
             
-            # 대화 컨텍스트에 AI 응답 추가
+            # Add AI response to conversation context
             user_state["conversation_context"].append({
                 "role": "assistant",
                 "content": response_message,
@@ -154,23 +163,35 @@ async def handle_new_request(message: str, user_id: int, user_state: Dict[str, A
             }
         else:
             print(f"🔧 [Main Agent] All parameters collected, executing analysis...")
-            # 모든 매개변수가 수집됨 - 분석 실행
+            # All parameters collected - execute analysis
             return await execute_analysis(analysis_type, param_result["params"], user_id, user_state, callback_context)
     else:
-        # 일반 대화
-        return {
-            "message": "안녕하세요! DataGround 지리공간 분석 시스템입니다. 어떤 분석을 도와드릴까요?\n\n지원하는 분석:\n- 해수면 상승 위험 분석\n- 도시 지역 분석\n- 인프라 노출 분석\n- 토픽 모델링 분석",
-            "status": "general_chat"
-        }
+        # General conversation - show welcome message only for new chats
+        is_new_chat = callback_context.state.get("is_new_chat", False)
+        print(f"🔍 [Main Agent] is_new_chat: {is_new_chat}")
+        
+        if is_new_chat:
+            print(f"🔍 [Main Agent] Showing welcome message for new chat")
+            return {
+                "message": "Hello! I'm the DataGround geospatial analysis system. How can I help you with your analysis?\n\nSupported analyses:\n- Sea level rise risk analysis\n- Urban area analysis\n- Infrastructure exposure analysis\n- Topic modeling analysis",
+                "status": "general_chat"
+            }
+        else:
+            print(f"🔍 [Main Agent] Showing generic response for existing chat")
+            # Simple response for existing chats
+            return {
+                "message": "Sorry, I couldn't understand your analysis intent. Please request a specific analysis.",
+                "status": "general_chat"
+            }
 
 async def handle_parameter_collection(message: str, user_id: int, user_state: Dict[str, Any], callback_context: CallbackContext) -> Dict[str, Any]:
-    """매개변수 수집 중 처리"""
+    """Handle parameter collection"""
     print(f"🔧 [Main Agent] Collecting parameters for {user_state['analysis_type']}...")
     
     analysis_type = user_state["analysis_type"]
     existing_params = user_state["collected_params"]
     
-    # 매개변수 수집
+    # Collect parameters
     try:
         param_result = await parameter_collector.collect_parameters(
             message, analysis_type, existing_params
@@ -181,17 +202,17 @@ async def handle_parameter_collection(message: str, user_id: int, user_state: Di
         import traceback
         traceback.print_exc()
         return {
-            "message": "매개변수 수집 중 오류가 발생했습니다. 다시 시도해주세요.",
+            "message": "An error occurred during parameter collection. Please try again.",
             "status": "error"
         }
     
-    # 수집된 매개변수 업데이트
+    # Update collected parameters
     user_state["collected_params"] = param_result["params"]
     
-    # 정확한 매칭이 있으면 제안 메시지를 무시하고 계속 진행
+    # If there's an exact match, ignore suggestion message and continue
     has_exact_match = any(key in param_result["params"] for key in ["city_name", "country_name"])
     
-    # 제안 메시지가 있고 정확한 매칭이 없는 경우에만 처리
+    # Only process if there's a suggestion message and no exact match
     if not has_exact_match and "suggestion_message" in param_result["params"]:
         return {
             "message": param_result["params"]["suggestion_message"],
@@ -201,23 +222,34 @@ async def handle_parameter_collection(message: str, user_id: int, user_state: Di
             "suggestion": True
         }
     
-    # 수집된 정보 확인 메시지 생성
+    # Generate confirmation message for collected information
     collected = user_state["collected_params"]
     country = collected.get("country_name", "None")
     city = collected.get("city_name", "None") 
-    year = collected.get("year", "None")
-    threshold = collected.get("threshold", "None")
     
-    if threshold != "None":
-        threshold = f"{threshold}m"
-    
-    confirmation_message = f"감사합니다! 다음 정보를 받았습니다:\n"
+    confirmation_message = f"Thank you! I've received the following information:\n"
     confirmation_message += f"Country: {country}\n"
-    confirmation_message += f"City: {city}\n" 
-    confirmation_message += f"Year: {year}\n"
-    confirmation_message += f"Sea-level: {threshold}"
+    confirmation_message += f"City: {city}\n"
     
-    # 모든 매개변수가 수집되었는지 확인
+    # Display different information by analysis type
+    if analysis_type == "urban_analysis":
+        start_year = collected.get("start_year", "None")
+        end_year = collected.get("end_year", "None")
+        threshold = collected.get("threshold", "None")
+        confirmation_message += f"Start Year: {start_year}\n"
+        confirmation_message += f"End Year: {end_year}\n"
+        if threshold != "None":
+            threshold = f"{threshold}m"
+        confirmation_message += f"Sea-level: {threshold}"
+    else:
+        year = collected.get("year", "None")
+        threshold = collected.get("threshold", "None")
+        confirmation_message += f"Year: {year}\n"
+        if threshold != "None":
+            threshold = f"{threshold}m"
+        confirmation_message += f"Sea-level: {threshold}"
+    
+    # Check if all parameters are collected
     all_collected = parameter_collector.are_all_parameters_collected(
         param_result["params"], analysis_type
     )
@@ -227,15 +259,15 @@ async def handle_parameter_collection(message: str, user_id: int, user_state: Di
     print(f"🔍 [Main Agent] Validation result: {param_result['validation']}")
     
     if not all_collected:
-        # 아직 누락된 매개변수가 있음
+        # Still missing parameters
         missing_params = param_result["validation"]["missing"]
-        # Country를 먼저, 그 다음 City를 질문하는 순서로 변경
+        # Change order to ask Country first, then City
         if "country_name" in missing_params:
-            question = "어떤 국가를 분석하시겠습니까? (예: South Korea, United States)"
+            question = "Which country would you like to analyze? (e.g., South Korea, United States)"
         elif "city_name" in missing_params:
-            question = "어떤 도시를 분석하시겠습니까? (예: Seoul, Busan, New York)"
+            question = "Which city would you like to analyze? (e.g., Seoul, Busan, New York)"
         else:
-            # 다음 누락된 매개변수만 질문
+            # Ask only the next missing parameter
             next_missing = missing_params[0]
             question = parameter_collector.generate_questions([next_missing], analysis_type)
         
@@ -246,142 +278,168 @@ async def handle_parameter_collection(message: str, user_id: int, user_state: Di
             "needs_clarification": True
         }
     else:
-        # 모든 매개변수 수집 완료 - 사용자 확인 요청
+        # All parameters collected - request user confirmation
         print(f"✅ [Main Agent] All parameters collected, requesting user confirmation...")
-        user_state["status"] = "awaiting_confirmation"  # 확인 대기 상태로 변경
+        user_state["status"] = "awaiting_confirmation"  # Change to confirmation waiting state
         
         return {
-            "message": f"{confirmation_message}\n\n다음 정보가 맞습니까? (yes/no)",
+            "message": f"{confirmation_message}\n\nIs this information correct? (yes/no)",
             "analysis_type": analysis_type,
             "status": "awaiting_confirmation",
             "needs_clarification": True
         }
 
 async def handle_confirmation(message: str, user_id: int, user_state: Dict[str, Any], callback_context: CallbackContext) -> Dict[str, Any]:
-    """사용자 확인 처리"""
+    """Handle user confirmation"""
     print(f"❓ [Main Agent] Handling user confirmation...")
     
     message_lower = message.lower().strip()
     
-    # 긍정적 응답 확인
+    # Check for positive response
     positive_responses = ['yes', 'y', '응', '그래', '맞아', '맞다', '맞습니다', '네', '좋아', 'ok', 'okay']
     negative_responses = ['no', 'n', '아니', '아니다', '아니요', '아닙니다', '틀렸', '다시', '취소']
     
     if any(response in message_lower for response in positive_responses):
-        # 사용자 확인 - 분석 실행
+        # User confirmed - execute analysis
         print(f"✅ [Main Agent] User confirmed, executing analysis...")
-        user_state["status"] = "idle"  # 상태 리셋
+        user_state["status"] = "idle"  # Reset state
         analysis_type = user_state["analysis_type"]
         collected_params = user_state["collected_params"]
         return await execute_analysis(analysis_type, collected_params, user_id, user_state, callback_context)
     
     elif any(response in message_lower for response in negative_responses):
-        # 사용자 거부 - 처음부터 다시 시작
+        # User rejected - start over from beginning
         print(f"🔄 [Main Agent] User rejected, restarting parameter collection...")
         user_state["status"] = "collecting_parameters"
-        user_state["collected_params"] = {}  # 수집된 매개변수 초기화
+        user_state["collected_params"] = {}  # Reset collected parameters
         
         analysis_type = user_state["analysis_type"]
         return {
-            "message": f"알겠습니다! {analysis_type.replace('_', ' ')} 분석을 다시 시작하겠습니다. 어떤 연도로 분석하시겠습니까? (예: 2020, 2018)",
+            "message": f"Understood! I'll restart the {analysis_type.replace('_', ' ')} analysis. Which year would you like to analyze? (e.g., 2020, 2018)",
             "analysis_type": analysis_type,
             "status": "collecting_parameters",
             "needs_clarification": True
         }
     
     else:
-        # 명확하지 않은 응답 - 다시 확인 요청
+        # Unclear response - request confirmation again
         collected = user_state["collected_params"]
         country = collected.get("country_name", "None")
-        city = collected.get("city_name", "None") 
-        year = collected.get("year", "None")
-        threshold = collected.get("threshold", "None")
+        city = collected.get("city_name", "None")
+        analysis_type = user_state["analysis_type"]
         
-        if threshold != "None":
-            threshold = f"{threshold}m"
-        
-        confirmation_message = f"감사합니다! 다음 정보를 받았습니다:\n"
+        confirmation_message = f"Thank you! I've received the following information:\n"
         confirmation_message += f"Country: {country}\n"
-        confirmation_message += f"City: {city}\n" 
-        confirmation_message += f"Year: {year}\n"
-        confirmation_message += f"Sea-level: {threshold}"
+        confirmation_message += f"City: {city}\n"
+        
+        # Display different information by analysis type
+        if analysis_type == "urban_analysis":
+            start_year = collected.get("start_year", "None")
+            end_year = collected.get("end_year", "None")
+            threshold = collected.get("threshold", "None")
+            confirmation_message += f"Start Year: {start_year}\n"
+            confirmation_message += f"End Year: {end_year}\n"
+            if threshold != "None":
+                threshold = f"{threshold}m"
+            confirmation_message += f"Sea-level: {threshold}"
+        else:
+            year = collected.get("year", "None")
+            threshold = collected.get("threshold", "None")
+            confirmation_message += f"Year: {year}\n"
+            if threshold != "None":
+                threshold = f"{threshold}m"
+            confirmation_message += f"Sea-level: {threshold}"
         
         return {
-            "message": f"{confirmation_message}\n\n다음 정보가 맞습니까? (yes/no)",
+            "message": f"{confirmation_message}\n\nIs this information correct? (yes/no)",
             "analysis_type": user_state["analysis_type"],
             "status": "awaiting_confirmation",
             "needs_clarification": True
         }
 
 async def execute_analysis(analysis_type: str, params: Dict[str, Any], user_id: int, user_state: Dict[str, Any], callback_context: CallbackContext) -> Dict[str, Any]:
-    """실제 분석 실행"""
-    print(f"🚀 [Main Agent] Executing {analysis_type} analysis with params: {params}")
+    """매개변수 수집 완료 후 자동으로 분석 실행"""
+    print(f"🚀 [Main Agent] Parameters collected for {analysis_type} analysis with params: {params}")
     
-    try:
-        # 분석 요청 구성
-        analysis_request = {
-            "analysis_type": analysis_type,
-            "parameters": params,
-            "user_id": user_id
-        }
-        
-        # 실제 GEE API 호출
-        if analysis_type == "sea_level_rise":
-            result = await call_sea_level_analysis_api(params)
-        elif analysis_type == "urban_analysis":
-            result = await call_urban_analysis_api(params)
-        elif analysis_type == "infrastructure_analysis":
-            result = await call_infrastructure_analysis_api(params)
-        elif analysis_type == "topic_modeling":
-            result = await call_topic_modeling_api(params)
-        else:
-            return {
-                "message": f"지원하지 않는 분석 유형입니다: {analysis_type}",
-                "status": "error"
-            }
-        
-        # 대화 컨텍스트에 AI 응답 추가
-        response_message = f"✅ **{analysis_type.replace('_', ' ').title()} 분석이 완료되었습니다!**\n\n"
-        response_message += f"요청하신 매개변수:\n"
-        response_message += f"- 연도: {params.get('year', 'N/A')}\n"
-        response_message += f"- 임계값: {params.get('threshold', 'N/A')}m\n"
-        response_message += f"- 도시: {params.get('city_name', 'N/A')}\n"
-        response_message += f"- 국가: {params.get('country_name', 'N/A')}\n\n"
-        response_message += f"결과가 대시보드에 표시되었습니다. 추가 질문이 있으신가요?"
-        
-        user_state["conversation_context"].append({
-            "role": "assistant",
-            "content": response_message,
-            "timestamp": "now"
+    # 매개변수를 수동 분석 시스템으로 전달하기 위한 URL 파라미터 생성
+    # 각 분석 유형별로 필요한 파라미터만 포함
+    analysis_params = {
+        "task": analysis_type,
+        "country": params.get("country_name", ""),
+        "city": params.get("city_name", ""),
+    }
+    
+    # 연도 파라미터 설정
+    if analysis_type == "urban_analysis":
+        analysis_params["year1"] = params.get("start_year", "")
+        analysis_params["year2"] = params.get("end_year", "")
+    else:
+        analysis_params["year1"] = params.get("year", "")
+    
+    # threshold가 필요한 분석 유형에만 추가
+    if analysis_type in ["sea_level_rise", "infrastructure_analysis", "urban_analysis"]:
+        analysis_params["threshold"] = params.get("threshold", "")
+    
+    # topic_modeling의 경우 특별한 파라미터들 추가
+    if analysis_type == "topic_modeling":
+        analysis_params.update({
+            "method": params.get("method", "lda"),
+            "nTopics": params.get("n_topics", 10),
+            "minDf": params.get("min_df", 2.0),
+            "maxDf": params.get("max_df", 0.95),
+            "ngramRange": params.get("ngram_range", "1,1"),
+            "inputType": params.get("input_type", "text"),
+            "textInput": params.get("text_input", ""),
+            "files": params.get("files", [])
         })
-        
-        dashboard_updates = result.get("dashboard_updates", [])
-        print(f"🔍 [Main Agent] Dashboard updates generated: {len(dashboard_updates)} items")
-        print(f"🔍 [Main Agent] Dashboard updates content: {dashboard_updates}")
-        
-        return {
-            "message": response_message,
-            "status": "analysis_completed",
-            "dashboard_updated": True,
-            "dashboard_updates": dashboard_updates,
-            "analysis_results": result
-        }
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        error_message = f"❌ 분석 실행 중 예외가 발생했습니다: {str(e)}"
-        
-        user_state["conversation_context"].append({
-            "role": "assistant",
-            "content": error_message,
-            "timestamp": "now"
-        })
-        
-        return {
-            "message": error_message,
-            "status": "error"
-        }
+    
+    # 분석 유형별 안내 메시지
+    analysis_messages = {
+        "sea_level_rise": "해수면 상승 위험 분석",
+        "urban_analysis": "도시 지역 분석", 
+        "infrastructure_analysis": "인프라 노출 분석",
+        "topic_modeling": "토픽 모델링 분석"
+    }
+    
+    analysis_name = analysis_messages.get(analysis_type, analysis_type.replace('_', ' ').title())
+    
+    # 자동 분석 실행을 위한 대시보드 업데이트 생성
+    dashboard_updates = [{
+        "type": "analysis_triggered",
+        "analysis_type": analysis_type,
+        "params": analysis_params,
+        "auto_execute": True
+    }]
+    
+    # 분석 완료 메시지
+    response_message = f"""✅ **{analysis_name} 분석이 자동으로 실행되었습니다!**
+
+📋 **분석 정보:**
+• 국가: {params.get("country_name", "N/A")}
+• 도시: {params.get("city_name", "N/A")}
+• 연도: {params.get("year", "N/A")}
+• 임계값: {params.get("threshold", "N/A")}m
+
+🔍 **분석 결과가 대시보드에 표시됩니다.**
+💡 **팁:** 매개변수를 수정하고 싶으시면 "Map" 탭에서 다시 분석하실 수 있습니다."""
+    
+    # 대화 컨텍스트에 AI 응답 추가
+    user_state["conversation_context"].append({
+        "role": "assistant",
+        "content": response_message,
+        "timestamp": "now"
+    })
+    
+    return {
+        "message": response_message,
+        "status": "analysis_completed",
+        "analysis_type": analysis_type,
+        "collected_params": params,
+        "redirect_to_manual": True,
+        "manual_analysis_params": analysis_params,
+        "dashboard_updated": True,
+        "dashboard_updates": dashboard_updates
+    }
 
 # Mock 분석 함수들 (실제 분석 로직 대신)
 async def mock_sea_level_analysis(params: Dict[str, Any]) -> Dict[str, Any]:

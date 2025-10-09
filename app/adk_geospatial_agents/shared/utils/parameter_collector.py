@@ -10,11 +10,39 @@ class ParameterCollector:
     """분석에 필요한 매개변수를 수집하는 유틸리티 클래스"""
     
     def __init__(self):
+        # 각 task별로 필요한 파라미터와 수집 순서 정의
         self.required_params = {
-            "sea_level_rise": ["year", "threshold", "city_name", "country_name"],
-            "urban_analysis": ["year", "city_name", "country_name"],
-            "infrastructure_analysis": ["year", "threshold", "city_name", "country_name"],
+            "sea_level_rise": ["country_name", "city_name", "year", "threshold"],
+            "urban_analysis": ["country_name", "city_name", "start_year", "end_year", "threshold"],
+            "infrastructure_analysis": ["country_name", "city_name", "year", "threshold"],
             "topic_modeling": ["method", "n_topics"]
+        }
+        
+        # 각 task별 파라미터 질문 템플릿
+        self.parameter_questions = {
+            "sea_level_rise": {
+                "country_name": "어떤 국가를 분석하시겠습니까? (예: South Korea, United States)",
+                "city_name": "어떤 도시를 분석하시겠습니까? (예: Seoul, Busan, New York)",
+                "year": "어떤 연도로 분석하시겠습니까? (예: 2020, 2018)",
+                "threshold": "해수면 상승 임계값을 설정해주세요 (예: 2.0m, 1.5m)"
+            },
+            "urban_analysis": {
+                "country_name": "어떤 국가를 분석하시겠습니까? (예: South Korea, United States)",
+                "city_name": "어떤 도시를 분석하시겠습니까? (예: Seoul, Busan, New York)",
+                "start_year": "시작 연도를 입력해주세요 (예: 2014, 2015)",
+                "end_year": "종료 연도를 입력해주세요 (예: 2020, 2019)",
+                "threshold": "해수면 상승 임계값을 설정해주세요 (예: 2.0m, 1.5m)"
+            },
+            "infrastructure_analysis": {
+                "country_name": "어떤 국가를 분석하시겠습니까? (예: South Korea, United States)",
+                "city_name": "어떤 도시를 분석하시겠습니까? (예: Seoul, Busan, New York)",
+                "year": "어떤 연도로 분석하시겠습니까? (예: 2020, 2018)",
+                "threshold": "해수면 상승 임계값을 설정해주세요 (예: 2.0m, 1.5m)"
+            },
+            "topic_modeling": {
+                "method": "어떤 방법을 사용하시겠습니까? (lda, bertopic)",
+                "n_topics": "토픽 수를 설정해주세요 (예: 10, 15)"
+            }
         }
         
         self.valid_years = list(range(2000, 2025))
@@ -34,13 +62,54 @@ class ParameterCollector:
             r'(\d{4})\s*년'  # 한국어 "년" 패턴 추가
         ]
         
-        for pattern in year_patterns:
-            match = re.search(pattern, message_lower)
-            if match:
-                year = int(match.group(1))
-                if year in self.valid_years:
-                    extracted['year'] = year
-                    break
+        # 각 분석 유형별로 연도 추출
+        if analysis_type == "urban_analysis":
+            # urban_analysis는 start_year와 end_year를 개별적으로 수집
+            # 연도 범위 패턴 (예: "2014-2020", "2014 to 2020", "2014부터 2020까지")
+            range_patterns = [
+                r'(\d{4})\s*[-~]\s*(\d{4})',
+                r'(\d{4})\s+to\s+(\d{4})',
+                r'(\d{4})\s+부터\s+(\d{4})\s+까지',
+                r'from\s+(\d{4})\s+to\s+(\d{4})',
+                r'(\d{4})\s*-\s*(\d{4})'
+            ]
+            
+            for pattern in range_patterns:
+                match = re.search(pattern, message_lower)
+                if match:
+                    start_year = int(match.group(1))
+                    end_year = int(match.group(2))
+                    if (start_year in self.valid_years and end_year in self.valid_years and 
+                        start_year <= end_year):
+                        extracted['start_year'] = start_year
+                        extracted['end_year'] = end_year
+                        print(f"🔍 [ParameterCollector] Urban analysis range: start_year={start_year}, end_year={end_year}")
+                        break
+            
+            # 개별 연도 추출 (start_year 또는 end_year 중 하나만 있는 경우)
+            if 'start_year' not in extracted and 'end_year' not in extracted:
+                for pattern in year_patterns:
+                    match = re.search(pattern, message_lower)
+                    if match:
+                        year = int(match.group(1))
+                        if year in self.valid_years:
+                            # 기존에 start_year가 있으면 end_year로, 없으면 start_year로 설정
+                            if 'start_year' in existing_params:
+                                extracted['end_year'] = year
+                                print(f"🔍 [ParameterCollector] Urban analysis: extracted end_year={year}")
+                            else:
+                                extracted['start_year'] = year
+                                print(f"🔍 [ParameterCollector] Urban analysis: extracted start_year={year}")
+                            break
+        else:
+            # 다른 분석 유형의 경우 year 추출
+            for pattern in year_patterns:
+                match = re.search(pattern, message_lower)
+                if match:
+                    year = int(match.group(1))
+                    if year in self.valid_years:
+                        extracted['year'] = year
+                        break
         
         # 임계값 추출
         threshold_patterns = [
@@ -136,8 +205,17 @@ class ParameterCollector:
                 missing.append(param)
             elif param == "year" and params[param] not in self.valid_years:
                 invalid.append(f"year must be between 2000-2024, got {params[param]}")
+            elif param == "start_year" and params[param] not in self.valid_years:
+                invalid.append(f"start_year must be between 2000-2024, got {params[param]}")
+            elif param == "end_year" and params[param] not in self.valid_years:
+                invalid.append(f"end_year must be between 2000-2024, got {params[param]}")
             elif param == "threshold" and not (self.valid_thresholds[0] <= params[param] <= self.valid_thresholds[1]):
                 invalid.append(f"threshold must be between {self.valid_thresholds[0]}-{self.valid_thresholds[1]}, got {params[param]}")
+        
+        # urban_analysis의 경우 start_year <= end_year 검증
+        if analysis_type == "urban_analysis" and "start_year" in params and "end_year" in params:
+            if params["start_year"] and params["end_year"] and params["start_year"] > params["end_year"]:
+                invalid.append(f"start_year ({params['start_year']}) must be <= end_year ({params['end_year']})")
         
         # location_error가 있지만 city_name과 country_name이 모두 있으면 location_error는 무시
         if 'location_error' in params and 'city_name' in params and 'country_name' in params:
@@ -186,8 +264,16 @@ class ParameterCollector:
     
     def generate_questions(self, missing_params: List[str], analysis_type: str) -> str:
         """누락된 매개변수에 대한 질문 생성"""
+        if missing_params and analysis_type in self.parameter_questions:
+            missing_param = missing_params[0]
+            if missing_param in self.parameter_questions[analysis_type]:
+                return self.parameter_questions[analysis_type][missing_param]
+        
+        # 기본 질문들
         questions = {
             "year": "어떤 연도로 분석하시겠습니까? (예: 2020, 2018)",
+            "start_year": "시작 연도를 입력해주세요 (예: 2014, 2015)",
+            "end_year": "종료 연도를 입력해주세요 (예: 2020, 2019)",
             "threshold": "해수면 상승 임계값을 설정해주세요. (예: 1.0m, 2.5m)",
             "city_name": "어떤 도시를 분석하시겠습니까? (예: Seoul, Busan, New York)",
             "country_name": "어떤 국가를 분석하시겠습니까? (예: South Korea, United States)",

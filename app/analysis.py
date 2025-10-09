@@ -7,24 +7,33 @@ from pathlib import Path
 from typing import List, Optional
 import json
 import tempfile
+from dotenv import load_dotenv
+
 
 router = APIRouter()
+load_dotenv()
 
 # --- GEE Setup ---
 def gee_initialize():
     """Initialize Google Earth Engine with service account authentication."""
     try:
-        service_account_file = os.getenv('GOOGLE_CREDENTIALS')  #"dataground-demo-8e3edabd762a.json"
+        service_account_file = os.getenv('GOOGLE_CREDENTIALS')  # JSON 파일 경로 또는 JSON 문자열
         if not service_account_file:
             raise ValueError("GOOGLE_CREDENTIALS env variable not found.")
         
-        with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as f:
-            json.dump(json.loads(service_account_file), f)
-            temp_path = f.name
+        # JSON 파일 경로인지 JSON 문자열인지 확인
+        if service_account_file.startswith('{'):
+            # JSON 문자열인 경우 임시 파일로 저장
+            with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as f:
+                json.dump(json.loads(service_account_file), f)
+                temp_path = f.name
+        else:
+            # 파일 경로인 경우
+            temp_path = service_account_file
         
         if os.path.exists(temp_path):
             credentials = ee.ServiceAccountCredentials(
-                email='dataground2025@gmail.com',
+                email='gee-demo@dataground-demo.iam.gserviceaccount.com',  # JSON의 client_email 사용
                 key_file=temp_path,
             )
             ee.Initialize(credentials, project='dataground-demo')
@@ -44,6 +53,15 @@ def gee_initialize():
         except Exception as e2:
             print(f"Failed to initialize GEE: {str(e2)}")
             raise
+
+# === OLD CODE (ahj personal account)===
+# def gee_initialize():
+#     """Initialize Google Earth Engine with the specified project."""
+#     try:
+#         ee.Initialize(project='data-ground-demo')
+#     except Exception:
+#         ee.Authenticate()
+#         ee.Initialize(project='data-ground-demo')
 
 gee_initialize()
 
@@ -81,21 +99,21 @@ def slr_risk(
         'region': bbox
     })
     
-    # 위험 지역 통계 계산
-    # 위험 지역의 픽셀 수를 계산하여 면적 추정
+    # Calculate risk area statistics
+    # Calculate number of risk pixels to estimate area
     risk_pixels = slr_mask.reduceRegion(
         reducer=ee.Reducer.sum(),
         geometry=bbox,
-        scale=30,  # SRTM 해상도
+        scale=30,  # SRTM resolution
         maxPixels=1e9
     ).getInfo()
     
-    total_pixels = bbox.area(10).getInfo() / (30 * 30)  # 30m 해상도 기준 픽셀 수
-    risk_area = risk_pixels.get('constant', 0) * 30 * 30  # 제곱미터
-    total_area = bbox.area(10).getInfo()  # 제곱미터
+    total_pixels = bbox.area(10).getInfo() / (30 * 30)  # Number of pixels based on 30m resolution
+    risk_area = risk_pixels.get('constant', 0) * 30 * 30  # Square meters
+    total_area = bbox.area(10).getInfo()  # Square meters
     risk_percentage = (risk_area / total_area) * 100 if total_area > 0 else 0
     
-    # 중심점 계산
+    # Calculate center point
     center_lat = (min_lat + max_lat) / 2
     center_lon = (min_lon + max_lon) / 2
     
@@ -108,7 +126,7 @@ def slr_risk(
             "bbox": [min_lon, min_lat, max_lon, max_lat]
         },
         "chart_data": {
-            "risk_area_km2": risk_area / 1e6,  # 제곱킬로미터로 변환
+            "risk_area_km2": risk_area / 1e6,  # Convert to square kilometers
             "total_area_km2": total_area / 1e6,
             "risk_percentage": round(risk_percentage, 2),
             "threshold": threshold
@@ -785,26 +803,21 @@ async def topic_modeling(
                 'random_state': 42
             }
         else:  # bertopic
-            # BERTopic uses minimal parameters to avoid validation issues
+            # BERTopic uses minimal parameters (auto-detects number of topics)
             tm_params = {
                 'method': method.lower()
             }
-            # Only add n_topics if explicitly provided
-            if n_topics_int is not None and n_topics_int > 0:
-                tm_params['n_topics'] = n_topics_int
+            # BERTopic automatically determines number of topics
         
         # Create TopicModeling instance
         tm = TopicModeling(**tm_params)
         
         # Fit the model
-        if method.lower() == "lda":
-            tm.set_docs(docs, doc_names).preprocess().fit(n_iter=20)
-        else:  # bertopic
-            tm.set_docs(docs, doc_names).preprocess().fit()
+        results = tm.fit(docs)
         
         # Get results
-        topics = tm.topics(topn=15)
-        document_topics = tm.document_topics()
+        topics = results['topics']
+        document_topics = results['document_assignments']
         
         # Check if any topics were found
         if len(topics) == 0:
@@ -828,13 +841,11 @@ async def topic_modeling(
             for i, topic in enumerate(topics):
                 # Prepare frequency data for wordcloud
                 if method.lower() == "lda":
-                    # For LDA, we need to get the topic components from the model
-                    comp = tm.model.lda.components_[i]
-                    vocab = tm.model.vocab
-                    freqs = {vocab[j]: float(comp[j]) for j in range(len(vocab))}
+                    # For LDA, use the topic words and weights
+                    freqs = {word: weight for word, weight in zip(topic['words'], topic['weights'])}
                 else:  # bertopic
-                    # For BERTopic, use the topic words directly
-                    freqs = {w: float(wt) for w, wt in topic.items()}
+                    # For BERTopic, use the topic words and weights
+                    freqs = {word: weight for word, weight in zip(topic['words'], topic['weights'])}
                 
                 # Create wordcloud
                 wc = WordCloud(
@@ -874,8 +885,8 @@ async def topic_modeling(
         # Prepare visualization data
         topic_data = []
         for i, topic in enumerate(topics):
-            words = list(topic.keys())
-            weights = list(topic.values())
+            words = topic['words']
+            weights = topic['weights']
             topic_data.append({
                 "topic_id": i + 1,  # 1-based indexing for users
                 "words": words,
@@ -887,29 +898,22 @@ async def topic_modeling(
         # Document-topic distribution
         doc_topic_data = []
         for i, doc_topic in enumerate(document_topics):
-            # Convert topic names from topic_0, topic_1, ... to topic_1, topic_2, ...
-            user_friendly_distribution = {}
-            for topic_name, value in doc_topic.items():
-                if topic_name.startswith("topic_"):
-                    topic_num = int(topic_name.split("_")[1])
-                    user_friendly_distribution[f"topic_{topic_num + 1}"] = value
-                else:
-                    user_friendly_distribution[topic_name] = value
-            
             doc_topic_data.append({
                 "doc_id": i,
                 "doc_name": doc_names[i] if i < len(doc_names) else f"doc_{i}",
-                "topic_distribution": user_friendly_distribution
+                "dominant_topic": doc_topic['dominant_topic'] + 1,  # 1-based indexing
+                "topic_probability": doc_topic['topic_probability'],
+                "document_preview": doc_topic['document']
             })
         
         # Get model information
-        model_info = tm.get_model_info()
+        model_info = results['model_info']
         
         print(f"DEBUG: Returning results with {len(topic_data)} topics and {len(wordclouds)} wordclouds")
         return {
             "method": method,
-            "n_topics": model_info["n_topics"],
-            "is_auto_topic_detection": model_info["is_auto_topic_detection"],
+            "n_topics": model_info.get("n_topics", len(topic_data)),
+            "is_auto_topic_detection": model_info.get("is_auto_topic_detection", method.lower() == "bertopic"),
             "topics": topic_data,
             "document_topics": doc_topic_data,
             "total_documents": len(docs),
@@ -1018,13 +1022,11 @@ async def get_topic_wordcloud(
                 'random_state': 42
             }
         else:  # bertopic
-            # BERTopic uses minimal parameters
+            # BERTopic uses minimal parameters (auto-detects number of topics)
             tm_params = {
                 'method': method.lower()
             }
-            # Only add n_topics if explicitly provided
-            if n_topics_int is not None and n_topics_int > 0:
-                tm_params['n_topics'] = n_topics_int
+            # BERTopic automatically determines number of topics
         
         # Initialize and fit model
         tm = TopicModeling(**tm_params)
