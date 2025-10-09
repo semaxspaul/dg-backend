@@ -7,7 +7,7 @@ import requests
 from typing import Dict, Any, Optional
 from google.adk.tools import ToolContext
 
-# GEE API 엔드포인트
+# GEE API endpoint
 GEE_API_BASE = "http://localhost:8000/api/analysis"
 
 async def get_sea_level_risk_analysis(
@@ -19,18 +19,18 @@ async def get_sea_level_risk_analysis(
     tool_context: ToolContext = None
 ) -> Dict[str, Any]:
     """
-    해수면 상승 위험 분석을 수행합니다.
+    Performs sea level rise risk analysis.
     
     Args:
-        year: 분석 연도 (2000-2024)
-        threshold: 해수면 상승 임계값 (0.5-5.0m)
-        city_name: 도시명
-        country_name: 국가명
-        coordinates: 좌표 정보 (lat, lng)
-        tool_context: ADK 도구 컨텍스트
+        year: Analysis year (2000-2024)
+        threshold: Sea level rise threshold (0.5-5.0m)
+        city_name: City name
+        country_name: Country name
+        coordinates: Coordinate information (lat, lng)
+        tool_context: ADK tool context
     
     Returns:
-        분석 결과 딕셔너리
+        Analysis result dictionary
     """
     try:
         url = f"{GEE_API_BASE}/sea-level-rise-risk"
@@ -49,7 +49,7 @@ async def get_sea_level_risk_analysis(
         
         result = response.json()
         
-        # 대시보드 업데이트 정보 추가
+        # Add dashboard update information
         dashboard_updates = [
             {
                 "type": "sea_level_risk",
@@ -60,7 +60,7 @@ async def get_sea_level_risk_analysis(
         
         return {
             "status": "completed",
-            "message": f"해수면 상승 위험 분석이 완료되었습니다. ({city_name}, {country_name}, {year}년, {threshold}m)",
+            "message": f"Sea level rise risk analysis completed. ({city_name}, {country_name}, {year}, {threshold}m)",
             "data": result,
             "dashboard_updates": dashboard_updates
         }
@@ -68,7 +68,7 @@ async def get_sea_level_risk_analysis(
     except Exception as e:
         return {
             "status": "failed",
-            "message": f"해수면 상승 위험 분석 중 오류 발생: {str(e)}"
+            "message": f"Error occurred during sea level rise risk analysis: {str(e)}"
         }
 
 async def get_urban_area_analysis(
@@ -79,17 +79,17 @@ async def get_urban_area_analysis(
     tool_context: ToolContext = None
 ) -> Dict[str, Any]:
     """
-    도시 지역 분석을 수행합니다.
+    Performs urban area analysis.
     
     Args:
-        year: 분석 연도 (2000-2024)
-        city_name: 도시명
-        country_name: 국가명
-        coordinates: 좌표 정보 (lat, lng)
-        tool_context: ADK 도구 컨텍스트
+        year: Analysis year (2000-2024)
+        city_name: City name
+        country_name: Country name
+        coordinates: Coordinate information (lat, lng)
+        tool_context: ADK tool context
     
     Returns:
-        분석 결과 딕셔너리
+        Analysis result dictionary
     """
     try:
         url = f"{GEE_API_BASE}/urban-area-comprehensive"
@@ -107,7 +107,7 @@ async def get_urban_area_analysis(
         
         result = response.json()
         
-        # 대시보드 업데이트 정보 추가
+        # Add dashboard update information
         dashboard_updates = [
             {
                 "type": "urban_analysis",
@@ -118,7 +118,7 @@ async def get_urban_area_analysis(
         
         return {
             "status": "completed",
-            "message": f"도시 지역 분석이 완료되었습니다. ({city_name}, {country_name}, {year}년)",
+            "message": f"Urban area analysis completed. ({city_name}, {country_name}, {year})",
             "data": result,
             "dashboard_updates": dashboard_updates
         }
@@ -126,7 +126,7 @@ async def get_urban_area_analysis(
     except Exception as e:
         return {
             "status": "failed",
-            "message": f"도시 지역 분석 중 오류 발생: {str(e)}"
+            "message": f"Error occurred during urban area analysis: {str(e)}"
         }
 
 async def get_infrastructure_exposure_analysis(
@@ -138,18 +138,18 @@ async def get_infrastructure_exposure_analysis(
     tool_context: ToolContext = None
 ) -> Dict[str, Any]:
     """
-    인프라 노출 분석을 수행합니다.
+    Performs infrastructure exposure analysis.
     
     Args:
-        year: 분석 연도 (2000-2024)
-        threshold: 해수면 상승 임계값 (0.5-5.0m)
-        city_name: 도시명
-        country_name: 국가명
-        coordinates: 좌표 정보 (lat, lng)
-        tool_context: ADK 도구 컨텍스트
+        year: Analysis year (2000-2024)
+        threshold: Sea level rise threshold (0.5-5.0m)
+        city_name: City name
+        country_name: Country name
+        coordinates: Coordinate information (lat, lng)
+        tool_context: ADK tool context
     
     Returns:
-        분석 결과 딕셔너리
+        Analysis result dictionary
     """
     try:
         url = f"{GEE_API_BASE}/infrastructure-exposure"
@@ -168,7 +168,7 @@ async def get_infrastructure_exposure_analysis(
         
         result = response.json()
         
-        # 대시보드 업데이트 정보 추가
+        # Add dashboard update information
         dashboard_updates = [
             {
                 "type": "infrastructure_exposure",
@@ -179,7 +179,7 @@ async def get_infrastructure_exposure_analysis(
         
         return {
             "status": "completed",
-            "message": f"인프라 노출 분석이 완료되었습니다. ({city_name}, {country_name}, {year}년, {threshold}m)",
+            "message": f"Infrastructure exposure analysis completed. ({city_name}, {country_name}, {year}, {threshold}m)",
             "data": result,
             "dashboard_updates": dashboard_updates
         }
@@ -187,7 +187,7 @@ async def get_infrastructure_exposure_analysis(
     except Exception as e:
         return {
             "status": "failed",
-            "message": f"인프라 노출 분석 중 오류 발생: {str(e)}"
+            "message": f"Error occurred during infrastructure exposure analysis: {str(e)}"
         }
 
 async def get_topic_modeling_analysis(
@@ -196,15 +196,15 @@ async def get_topic_modeling_analysis(
     tool_context: ToolContext = None
 ) -> Dict[str, Any]:
     """
-    토픽 모델링 분석을 수행합니다.
+    Performs topic modeling analysis.
     
     Args:
-        method: 토픽 모델링 방법 (lda, nmf, bertopic)
-        n_topics: 토픽 개수 (2-20)
-        tool_context: ADK 도구 컨텍스트
+        method: Topic modeling method (lda, nmf, bertopic)
+        n_topics: Number of topics (2-20)
+        tool_context: ADK tool context
     
     Returns:
-        분석 결과 딕셔너리
+        Analysis result dictionary
     """
     try:
         url = f"{GEE_API_BASE}/topic-modeling"
@@ -218,7 +218,7 @@ async def get_topic_modeling_analysis(
         
         result = response.json()
         
-        # 대시보드 업데이트 정보 추가
+        # Add dashboard update information
         dashboard_updates = [
             {
                 "type": "topic_modeling",
@@ -229,7 +229,7 @@ async def get_topic_modeling_analysis(
         
         return {
             "status": "completed",
-            "message": f"토픽 모델링 분석이 완료되었습니다. ({method}, {n_topics}개 토픽)",
+            "message": f"Topic modeling analysis completed. ({method}, {n_topics} topics)",
             "data": result,
             "dashboard_updates": dashboard_updates
         }
@@ -237,5 +237,5 @@ async def get_topic_modeling_analysis(
     except Exception as e:
         return {
             "status": "failed",
-            "message": f"토픽 모델링 분석 중 오류 발생: {str(e)}"
+            "message": f"Error occurred during topic modeling analysis: {str(e)}"
         }

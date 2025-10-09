@@ -15,7 +15,7 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.invocation_context import InvocationContext
 from collections import defaultdict
 
-# 전역 사용자 상태 관리 (실제로는 Redis나 DB에 저장해야 함)
+# Global user state management (should be stored in Redis or DB in practice)
 user_states = defaultdict(lambda: {
     "status": "idle",
     "analysis_type": None,
@@ -23,30 +23,33 @@ user_states = defaultdict(lambda: {
     "conversation_context": []
 })
 
-# ADK 에이전트는 process_user_message 함수를 통해 직접 호출됩니다
+# ADK agents are called directly through the process_user_message function
 
 def create_adk_context(user_id: int, chat_id: int):
-    """ADK 표준에 맞는 CallbackContext 생성"""
+    """Create CallbackContext according to ADK standards"""
     try:
-        # ADK 표준에 맞는 InvocationContext 생성
-        from google.adk.agents.session import Session
-        from google.adk.agents.agent import Agent
-        from google.adk.services.session_service import SessionService
+        # Create InvocationContext according to ADK standards
+        from google.adk.sessions import Session
+        from google.adk.agents import Agent
+        from google.adk.sessions import InMemorySessionService
         
-        # Session 생성
+        # Create Session
         session = Session(
             id=f"session_{user_id}_{chat_id}",
+            app_name="dataground",
             user_id=str(user_id),
-            metadata={"chat_id": chat_id}
+            state={},
+            events=[],
+            last_update_time=time.time()
         )
         
-        # SessionService 생성
-        session_service = SessionService()
+        # Create SessionService
+        session_service = InMemorySessionService()
         
-        # Agent 생성
+        # Create Agent
         agent = Agent(name="main_agent")
         
-        # InvocationContext 생성
+        # Create InvocationContext
         invocation_context = InvocationContext(
             session_service=session_service,
             invocation_id=f"inv_{user_id}_{chat_id}_{int(time.time())}",
@@ -54,10 +57,10 @@ def create_adk_context(user_id: int, chat_id: int):
             session=session
         )
         
-        # CallbackContext 생성
+        # Create CallbackContext
         callback_context = CallbackContext(invocation_context)
         
-        # 상태 초기화
+        # Initialize state
         if "user_states" not in callback_context.state:
             callback_context.state["user_states"] = user_states
         if "current_user_id" not in callback_context.state:
@@ -69,7 +72,7 @@ def create_adk_context(user_id: int, chat_id: int):
         
     except ImportError as e:
         print(f"⚠️ [ADK] ADK modules not available, using fallback: {e}")
-        # Fallback: 간단한 MockCallbackContext
+        # Fallback: Simple MockCallbackContext
         class MockCallbackContext:
             def __init__(self, user_id, chat_id):
                 self.state = {
@@ -80,7 +83,7 @@ def create_adk_context(user_id: int, chat_id: int):
         return MockCallbackContext(user_id, chat_id)
     except Exception as e:
         print(f"❌ [ADK] Error creating ADK context: {e}")
-        # Fallback: 간단한 MockCallbackContext
+        # Fallback: Simple MockCallbackContext
         class MockCallbackContext:
             def __init__(self, user_id, chat_id):
                 self.state = {
@@ -91,44 +94,72 @@ def create_adk_context(user_id: int, chat_id: int):
         return MockCallbackContext(user_id, chat_id)
 
 async def send_message(message: str, user_id: int, db: Session, chat_id: int = None) -> Dict[str, Any]:
-    """ADK 에이전트를 사용하여 메시지 처리"""
+    """Process messages using ADK agents"""
+    import time
+    request_id = f"{int(time.time() * 1000)}_{user_id}_{message[:10]}"
+    print(f"🔍 [ADK_CHAT] {request_id} - Starting send_message function")
+    print(f"🔍 [ADK_CHAT] {request_id} - Message: {message[:20]}, User: {user_id}, Chat: {chat_id}")
+    
     try:
         print(f"🚀 [ADK Chat] Processing message from user {user_id}: '{message[:50]}...'")
         
-        # chat_id가 없으면 사용자의 최근 채팅 사용
+        # Simple check to prevent duplicate requests
+        import hashlib
+        import time
+        request_hash = hashlib.md5(f"{user_id}_{chat_id}_{message}_{int(time.time())}".encode()).hexdigest()
+        print(f"🔍 [ADK_CHAT] {request_id} - Request hash: {request_hash}")
+        print(f"🔍 [ADK_CHAT] {request_id} - Current processing requests: {getattr(send_message, '_processing_requests', set())}")
+        
+        if hasattr(send_message, '_processing_requests'):
+            if request_hash in send_message._processing_requests:
+                print(f"⚠️ [ADK Chat] Duplicate request detected, ignoring: {request_hash}")
+                return {"message": "요청이 이미 처리 중입니다.", "status": "duplicate"}
+            send_message._processing_requests.add(request_hash)
+        else:
+            send_message._processing_requests = {request_hash}
+        print(f"✅ [ADK_CHAT] {request_id} - Request added to processing set")
+        
+        # Use user's recent chat if chat_id is not provided
         if not chat_id:
             user_chats = db.query(Chat).filter(Chat.user_id == user_id).order_by(Chat.created_at.desc()).limit(1).all()
             if not user_chats:
                 raise HTTPException(status_code=404, detail="No chat found for user")
             chat_id = user_chats[0].id
         
-        # 메시지 저장
-        db_message = Message(
-            chat_id=chat_id,
-            sender="user",
-            content=message
-        )
-        db.add(db_message)
-        db.commit()
-        db.refresh(db_message)
+        # Check if this is a new chat (excluding current message from count)
+        # Count user messages excluding current message (to check if new chat)
+        user_message_count = db.query(Message).filter(
+            Message.chat_id == chat_id,
+            Message.sender == "user",
+            Message.content != message  # Exclude current message
+        ).count()
         
-        # ADK 표준 CallbackContext 생성
+        is_new_chat = user_message_count == 0  # New chat if no user messages excluding current message
+        print(f"🔍 [ADK Chat] User message count (excluding current): {user_message_count}")
+        print(f"🔍 [ADK Chat] is_new_chat: {is_new_chat}")
+        
+        # Debug: Check all messages in current chat
+        all_messages = db.query(Message).filter(Message.chat_id == chat_id).order_by(Message.created_at).all()
+        print(f"🔍 [ADK Chat] All messages in chat {chat_id}:")
+        for msg in all_messages:
+            print(f"  - {msg.sender}: {msg.content[:20]}...")
+        
+        # User message is already saved in send_message_endpoint
+        # Only need to generate AI response here
+        print(f"✅ [ADK Chat] Processing AI response for chat {chat_id}")
+        
+        # Create ADK standard CallbackContext
         callback_context = create_adk_context(user_id, chat_id)
         
-        # ADK 에이전트 호출
+        # Add new chat information to callback_context
+        callback_context.state["is_new_chat"] = is_new_chat
+        print(f"🔍 [ADK Chat] Set is_new_chat in callback_context: {is_new_chat}")
+        
+        # Call ADK agent
         response = await process_user_message(message, user_id, callback_context)
         
-        # 응답 메시지 저장
-        response_content = response.get("message", "죄송합니다. 응답을 생성할 수 없습니다.")
-        
-        db_response = Message(
-            chat_id=chat_id,
-            sender="assistant",
-            content=response_content
-        )
-        db.add(db_response)
-        db.commit()
-        db.refresh(db_response)
+        # Get response message content (saving is handled in send_message_endpoint)
+        response_content = response.get("message", "Sorry, I cannot generate a response.")
         
         print(f"✅ [ADK Chat] Response generated: '{response_content[:50]}...'")
         
@@ -136,13 +167,24 @@ async def send_message(message: str, user_id: int, db: Session, chat_id: int = N
         print(f"🔍 [ADK Chat] Dashboard updates in response: {len(dashboard_updates)} items")
         print(f"🔍 [ADK Chat] Dashboard updates content: {dashboard_updates}")
         
+        # Debug ADK response
+        print(f"🔍 [ADK Chat] Full ADK response keys: {list(response.keys())}")
+        print(f"🔍 [ADK Chat] redirect_to_manual: {response.get('redirect_to_manual', 'NOT_FOUND')}")
+        print(f"🔍 [ADK Chat] manual_analysis_params: {response.get('manual_analysis_params', 'NOT_FOUND')}")
+        print(f"🔍 [ADK Chat] analysis_type: {response.get('analysis_type', 'NOT_FOUND')}")
+        
+        # Remove request hash
+        if hasattr(send_message, '_processing_requests') and request_hash in send_message._processing_requests:
+            send_message._processing_requests.remove(request_hash)
+        
         return {
             "message": response_content,
-            "message_id": db_response.id,
-            "timestamp": db_response.created_at.isoformat(),
             "status": response.get("status", "completed"),
             "dashboard_updated": response.get("dashboard_updated", False),
-            "dashboard_updates": dashboard_updates
+            "dashboard_updates": dashboard_updates,
+            "redirect_to_manual": response.get("redirect_to_manual", False),
+            "manual_analysis_params": response.get("manual_analysis_params", None),
+            "analysis_type": response.get("analysis_type", None)
         }
         
     except Exception as e:
@@ -150,8 +192,8 @@ async def send_message(message: str, user_id: int, db: Session, chat_id: int = N
         import traceback
         traceback.print_exc()
         
-        # 에러 메시지 저장
-        error_message = f"죄송합니다. 오류가 발생했습니다: {str(e)}"
+        # Save error message
+        error_message = f"Sorry, an error occurred: {str(e)}"
         db_error = Message(
             chat_id=chat_id or 0,
             sender="assistant",
@@ -163,18 +205,18 @@ async def send_message(message: str, user_id: int, db: Session, chat_id: int = N
         raise HTTPException(status_code=500, detail=error_message)
 
 async def generate_ai_response(user_id: int, db: Session) -> Dict[str, Any]:
-    """AI 응답 생성 (기존 호환성 유지)"""
+    """Generate AI response (maintain existing compatibility)"""
     try:
-        # 사용자의 최근 채팅 가져오기
+        # Get user's recent chat
         user_chats = db.query(Chat).filter(Chat.user_id == user_id).order_by(Chat.created_at.desc()).limit(1).all()
         
         if not user_chats:
             return {
-                "message": "안녕하세요! DataGround 지리공간 분석 시스템입니다. 어떤 분석을 도와드릴까요?",
+                "message": "Hello! I'm the DataGround geospatial analysis system. How can I help you with your analysis?",
                 "status": "greeting"
             }
         
-        # 가장 최근 채팅의 메시지들 가져오기
+        # Get messages from the most recent chat
         latest_chat = user_chats[0]
         chat_history = db.query(Message).filter(
             Message.chat_id == latest_chat.id
@@ -182,11 +224,11 @@ async def generate_ai_response(user_id: int, db: Session) -> Dict[str, Any]:
         
         if not chat_history:
             return {
-                "message": "안녕하세요! DataGround 지리공간 분석 시스템입니다. 어떤 분석을 도와드릴까요?",
+                "message": "Hello! I'm the DataGround geospatial analysis system. How can I help you with your analysis?",
                 "status": "greeting"
             }
         
-        # 최신 사용자 메시지 찾기
+        # Find latest user message
         latest_user_message = None
         for msg in reversed(chat_history):
             if msg.sender == "user":
@@ -195,17 +237,17 @@ async def generate_ai_response(user_id: int, db: Session) -> Dict[str, Any]:
         
         if not latest_user_message:
             return {
-                "message": "안녕하세요! DataGround 지리공간 분석 시스템입니다. 어떤 분석을 도와드릴까요?",
+                "message": "Hello! I'm the DataGround geospatial analysis system. How can I help you with your analysis?",
                 "status": "greeting"
             }
         
-        # ADK 표준 CallbackContext 생성
+        # Create ADK standard CallbackContext
         callback_context = create_adk_context(user_id, latest_chat.id)
         
-        # ADK 에이전트 호출
+        # Call ADK agent
         response = await process_user_message(latest_user_message.content, user_id, callback_context)
         
-        # AI 메시지 저장
+        # Save AI message
         ai_message = Message(
             chat_id=latest_chat.id,
             sender="assistant",
@@ -230,14 +272,14 @@ async def generate_ai_response(user_id: int, db: Session) -> Dict[str, Any]:
         traceback.print_exc()
         
         return {
-            "message": f"죄송합니다. 오류가 발생했습니다: {str(e)}",
+            "message": f"Sorry, an error occurred: {str(e)}",
             "status": "error"
         }
 
 def get_chat_history(user_id: int, db: Session, limit: int = 50) -> List[Dict[str, Any]]:
-    """채팅 기록 가져오기"""
+    """Get chat history"""
     try:
-        # 사용자의 모든 채팅에서 메시지 가져오기
+        # Get messages from all user chats
         user_chats = db.query(Chat).filter(Chat.user_id == user_id).all()
         chat_ids = [chat.id for chat in user_chats]
         

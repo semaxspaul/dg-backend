@@ -14,7 +14,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base.metadata.create_all(bind=engine)
 
 def get_db():
-    """데이터베이스 세션 의존성"""
+    """Database session dependency"""
     db = SessionLocal()
     try:
         yield db

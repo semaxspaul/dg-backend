@@ -42,10 +42,12 @@ def list_chats(current_user: models.User = Depends(get_current_user), db: Sessio
 
 @router.post('/chats', response_model=schemas.ChatOut)
 def create_chat(title: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    print(f"🚀 [Create Chat] Creating chat with title: '{title}' for user {current_user.id}")
     chat = models.Chat(user_id=current_user.id, title=title)
     db.add(chat)
     db.commit()
     db.refresh(chat)
+    print(f"✅ [Create Chat] Chat created successfully: {chat.id}")
     return chat
 
 @router.get('/chats/{chat_id}/messages', response_model=List[schemas.MessageOut])
@@ -57,25 +59,41 @@ def get_messages(chat_id: int, current_user: models.User = Depends(get_current_u
 
 @router.post('/chats/{chat_id}/messages', response_model=schemas.MessageOut)
 async def send_message_endpoint(chat_id: int, content: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    import time
+    request_id = f"{int(time.time() * 1000)}_{chat_id}_{content[:10]}"
+    print(f"🔍 [ENDPOINT] {request_id} - Starting send_message_endpoint")
+    print(f"🔍 [ENDPOINT] {request_id} - Chat ID: {chat_id}, Content: {content[:20]}")
+    print(f"🔍 [ENDPOINT] {request_id} - User ID: {current_user.id}")
+    
     chat = db.query(models.Chat).filter(models.Chat.id == chat_id, models.Chat.user_id == current_user.id).first()
     if not chat:
+        print(f"❌ [ENDPOINT] {request_id} - Chat not found")
         raise HTTPException(status_code=404, detail="Chat not found")
     
+    print(f"✅ [ENDPOINT] {request_id} - Chat found, storing user message")
     # Store user message
     user_msg = models.Message(chat_id=chat_id, sender="user", content=content)
     db.add(user_msg)
     db.commit()
     db.refresh(user_msg)
+    print(f"✅ [ENDPOINT] {request_id} - User message stored with ID: {user_msg.id}")
     
     # Use ADK chat integration for AI response
     print(f"🚀 [ADK] Chat API received message from user {current_user.id}: '{content[:50]}...'")
     try:
+        print(f"🔍 [ENDPOINT] {request_id} - Calling send_message function")
+        print(f"🔍 [ENDPOINT] {request_id} - About to call send_message with chat_id: {chat_id}")
+        
         # Process message with ADK agent
         response = await send_message(
             message=content,
             user_id=current_user.id,
-            db=db
+            db=db,
+            chat_id=chat_id
         )
+        
+        print(f"✅ [ENDPOINT] {request_id} - send_message completed")
+        print(f"🔍 [ENDPOINT] {request_id} - Response received: {response.get('message', 'No message')[:50]}...")
         
         print(f"✅ [ADK] Agent response: '{response.get('message', 'No response')[:50]}...'")
         
@@ -83,7 +101,7 @@ async def send_message_endpoint(chat_id: int, content: str, current_user: models
         ai_msg = models.Message(
             chat_id=chat_id, 
             sender="assistant", 
-            content=response.get("message", "죄송합니다. 응답을 생성할 수 없습니다.")
+            content=response.get("message", "Sorry, I cannot generate a response.")
         )
         db.add(ai_msg)
         db.commit()
@@ -116,7 +134,7 @@ async def send_message_endpoint(chat_id: int, content: str, current_user: models
         error_msg = models.Message(
             chat_id=chat_id,
             sender="assistant", 
-            content=f"죄송합니다. 오류가 발생했습니다: {str(e)}"
+            content=f"Sorry, an error occurred: {str(e)}"
         )
         db.add(error_msg)
         db.commit()
@@ -177,14 +195,14 @@ async def generate_ai_response_endpoint(chat_id: int, current_user: models.User 
                 user_id=current_user.id,
                 db=db
             )
-            ai_content = response.get("message", "죄송합니다. 응답을 생성할 수 없습니다.")
+            ai_content = response.get("message", "Sorry, I cannot generate a response.")
             print(f"✅ [ADK] AI response generated: {ai_content[:100]}...")
             
         except Exception as e:
             print(f"❌ [ADK] Error generating AI response: {str(e)}")
             import traceback
             traceback.print_exc()
-            ai_content = f"죄송합니다. 오류가 발생했습니다: {str(e)}"
+            ai_content = f"Sorry, an error occurred: {str(e)}"
     
     # Store AI message
     ai_msg = models.Message(chat_id=chat_id, sender="assistant", content=ai_content)
