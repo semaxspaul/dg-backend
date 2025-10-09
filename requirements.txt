@@ -1,6 +1,6 @@
 annotated-types
 anyio
-bcrypt
+bcrypt==4.3.0
 cachetools
 certifi
 cffi
